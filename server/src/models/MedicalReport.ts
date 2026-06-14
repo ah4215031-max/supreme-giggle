@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IMedicalReport extends Document {
-  reportId: string;  // رقم التقرير الفريد
+  reportId: string;
   patientId: mongoose.Types.ObjectId;
   doctorId: mongoose.Types.ObjectId;
   appointmentId?: mongoose.Types.ObjectId;
@@ -10,18 +10,40 @@ export interface IMedicalReport extends Document {
   content: string;
   findings: string;
   recommendations: string;
-  attachments?: {
-    filename: string;
-    fileUrl: string;
-    fileType: string;
-    uploadedAt: Date;
-  }[];
+  // معلومات المستشفى والعلامة المائية
+  templateId?: mongoose.Types.ObjectId;
+  hospitalInfo?: {
+    hospitalName: string;
+    hospitalLogo?: string;
+    hospitalAddress?: string;
+    hospitalPhone?: string;
+    hospitalEmail?: string;
+  };
+  watermarkSettings?: {
+    watermarkImage?: string;
+    watermarkText?: string;
+    watermarkOpacity?: number;
+    watermarkPosition?: 'center' | 'diagonal' | 'top-right';
+  };
+  // التوقيع والموافقة
   signature?: {
     doctorName: string;
     doctorLicense: string;
     signatureImage?: string;
     signedAt: Date;
   };
+  approvalInfo?: {
+    approvedBy?: mongoose.Types.ObjectId;
+    approvedAt?: Date;
+    approvalStatus?: 'pending' | 'approved' | 'rejected';
+    approvalNotes?: string;
+  };
+  attachments?: {
+    filename: string;
+    fileUrl: string;
+    fileType: string;
+    uploadedAt: Date;
+  }[];
   hospital?: string;
   department?: string;
   reportDate: Date;
@@ -69,7 +91,7 @@ const medicalReportSchema = new Schema<IMedicalReport>(
     },
     content: {
       type: String,
-      required: [true, 'يرجى إدخال محتوى التقرير'],
+      required: [true, 'يرجى إدخا�� محتوى التقرير'],
       minlength: [20, 'المحتوى يجب أن يكون على الأقل 20 حرف']
     },
     findings: {
@@ -79,6 +101,47 @@ const medicalReportSchema = new Schema<IMedicalReport>(
     recommendations: {
       type: String,
       required: [true, 'يرجى إدخال التوصيات']
+    },
+    // معلومات المستشفى
+    templateId: {
+      type: Schema.Types.ObjectId,
+      ref: 'ReportTemplate'
+    },
+    hospitalInfo: {
+      hospitalName: String,
+      hospitalLogo: String,
+      hospitalAddress: String,
+      hospitalPhone: String,
+      hospitalEmail: String
+    },
+    watermarkSettings: {
+      watermarkImage: String,
+      watermarkText: String,
+      watermarkOpacity: {
+        type: Number,
+        default: 0.1
+      },
+      watermarkPosition: {
+        type: String,
+        enum: ['center', 'diagonal', 'top-right'],
+        default: 'center'
+      }
+    },
+    signature: {
+      doctorName: String,
+      doctorLicense: String,
+      signatureImage: String,
+      signedAt: Date
+    },
+    approvalInfo: {
+      approvedBy: Schema.Types.ObjectId,
+      approvedAt: Date,
+      approvalStatus: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending'
+      },
+      approvalNotes: String
     },
     attachments: [
       {
@@ -91,20 +154,8 @@ const medicalReportSchema = new Schema<IMedicalReport>(
         }
       }
     ],
-    signature: {
-      doctorName: String,
-      doctorLicense: String,
-      signatureImage: String,
-      signedAt: Date
-    },
-    hospital: {
-      type: String,
-      default: null
-    },
-    department: {
-      type: String,
-      default: null
-    },
+    hospital: String,
+    department: String,
     reportDate: {
       type: Date,
       default: Date.now
@@ -127,7 +178,7 @@ const medicalReportSchema = new Schema<IMedicalReport>(
   }
 );
 
-// Index للبحث السريع
+// Indexes
 medicalReportSchema.index({ patientId: 1, reportDate: -1 });
 medicalReportSchema.index({ doctorId: 1, reportDate: -1 });
 medicalReportSchema.index({ reportId: 1 });

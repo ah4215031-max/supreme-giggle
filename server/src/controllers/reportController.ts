@@ -1,10 +1,9 @@
 import { Request, Response } from 'express';
 import MedicalReport from '../models/MedicalReport';
-import Patient from '../models/Patient';
-import User from '../models/User';
+import ReportTemplate from '../models/ReportTemplate';
 import { v4 as uuidv4 } from 'uuid';
 
-// إنشاء تقرير طبي جديد
+// إنشاء تقرير طبي مع معلومات المستشفى والعلامة المائية
 export const createReport = async (req: Request, res: Response) => {
   try {
     const {
@@ -15,26 +14,17 @@ export const createReport = async (req: Request, res: Response) => {
       content,
       findings,
       recommendations,
-      hospital,
+      templateId,
+      watermarkText,
+      watermarkOpacity,
+      watermarkPosition,
+      hospitalInfo,
       department,
       confidentiality,
       tags,
       notes
     } = req.body;
 
-    // التحقق من وجود المريض
-    const patient = await Patient.findById(patientId).populate('userId');
-    if (!patient) {
-      return res.status(404).json({
-        success: false,
-        message: 'المريض غير موجود'
-      });
-    }
-
-    // توليد رقم تقرير فريد
-    const reportId = `RPT-${new Date().getFullYear()}-${uuidv4().substring(0, 8).toUpperCase()}`;
-
-    // الحصول على بيانات الطبيب من الـ session
     const doctorId = (req as any).user?.id;
     if (!doctorId) {
       return res.status(401).json({
@@ -42,6 +32,36 @@ export const createReport = async (req: Request, res: Response) => {
         message: 'يجب تسجيل الدخول أولاً'
       });
     }
+
+    // جلب التقرير من القالب إن وجد
+    let template = null;
+    let finalHospitalInfo = hospitalInfo;
+    let watermarkSettings = {
+      watermarkText: watermarkText || 'سري - تم تصدير من منصة صحتي',
+      watermarkOpacity: watermarkOpacity || 0.1,
+      watermarkPosition: watermarkPosition || 'center'
+    };
+
+    if (templateId) {
+      template = await ReportTemplate.findById(templateId);
+      if (template) {
+        finalHospitalInfo = {
+          hospitalName: template.hospitalName,
+          hospitalLogo: template.hospitalLogo,
+          hospitalAddress: template.hospitalAddress,
+          hospitalPhone: template.hospitalPhone,
+          hospitalEmail: template.hospitalEmail
+        };
+        watermarkSettings = {
+          watermarkText: watermarkText || template.watermark || 'سري',
+          watermarkOpacity: watermarkOpacity || template.watermarkOpacity || 0.1,
+          watermarkPosition: watermarkPosition || template.watermarkPosition || 'center'
+        };
+      }
+    }
+
+    // توليد رقم التقرير الفريد
+    const reportId = `RPT-${new Date().getFullYear()}-${uuidv4().substring(0, 8).toUpperCase()}`;
 
     // إنشاء التقرير
     const newReport = new MedicalReport({
@@ -54,7 +74,9 @@ export const createReport = async (req: Request, res: Response) => {
       content,
       findings,
       recommendations,
-      hospital,
+      templateId: templateId || null,
+      hospitalInfo: finalHospitalInfo,
+      watermarkSettings,
       department,
       confidentiality: confidentiality || 'private',
       tags: tags || [],
@@ -78,6 +100,91 @@ export const createReport = async (req: Request, res: Response) => {
   }
 };
 
+// إضافة توقيع الطبيب على التقرير
+export const signReport = async (req: Request, res: Response) => {
+  try {
+    const { reportId } = req.params;
+    const { doctorName, doctorLicense, signatureImage } = req.body;
+
+    const report = await MedicalReport.findByIdAndUpdate(
+      reportId,
+      {
+        signature: {
+          doctorName,
+          doctorLicense,
+          signatureImage,
+          signedAt: new Date()
+        },
+        status: 'completed'
+      },
+      { new: true }
+    );
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'التقرير غير موجود'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'تم توقيع التقرير بنجاح',
+      data: report
+    });
+  } catch (error: any) {
+    console.error('خطأ في توقيع التقرير:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'حدث خطأ في توقيع التقرير',
+      error: error.message
+    });
+  }
+};
+
+// موافقة مسؤول على التقرير
+export const approveReport = async (req: Request, res: Response) => {
+  try {
+    const { reportId } = req.params;
+    const { approvalNotes } = req.body;
+    const approvedBy = (req as any).user?.id;
+
+    const report = await MedicalReport.findByIdAndUpdate(
+      reportId,
+      {
+        approvalInfo: {
+          approvedBy,
+          approvedAt: new Date(),
+          approvalStatus: 'approved',
+          approvalNotes
+        },
+        status: 'approved'
+      },
+      { new: true }
+    );
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'التقرير غير موجود'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'تم الموافقة على التقرير بنجاح',
+      data: report
+    });
+  } catch (error: any) {
+    console.error('خطأ في الموافقة على التقرير:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'حدث خطأ في الموافقة على التقرير',
+      error: error.message
+    });
+  }
+};
+
 // الحصول على جميع التقارير
 export const getAllReports = async (req: Request, res: Response) => {
   try {
@@ -92,8 +199,8 @@ export const getAllReports = async (req: Request, res: Response) => {
     const skip = (Number(page) - 1) * Number(limit);
 
     const reports = await MedicalReport.find(filters)
-      .populate('patientId', 'userId')
-      .populate('doctorId', 'userId')
+      .populate('patientId')
+      .populate('doctorId')
       .sort({ reportDate: -1 })
       .skip(skip)
       .limit(Number(limit));
@@ -111,7 +218,6 @@ export const getAllReports = async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('خطأ في جلب التقارير:', error);
     return res.status(500).json({
       success: false,
       message: 'حدث خطأ في جلب التقارير',
@@ -142,7 +248,6 @@ export const getReportById = async (req: Request, res: Response) => {
       data: report
     });
   } catch (error: any) {
-    console.error('خطأ في جلب التقرير:', error);
     return res.status(500).json({
       success: false,
       message: 'حدث خطأ في جلب التقرير',
@@ -176,52 +281,9 @@ export const updateReport = async (req: Request, res: Response) => {
       data: report
     });
   } catch (error: any) {
-    console.error('خطأ في تحديث التقرير:', error);
     return res.status(500).json({
       success: false,
       message: 'حدث خطأ في تحديث التقرير',
-      error: error.message
-    });
-  }
-};
-
-// تحديث حالة التقرير
-export const updateReportStatus = async (req: Request, res: Response) => {
-  try {
-    const { reportId } = req.params;
-    const { status } = req.body;
-
-    const validStatuses = ['draft', 'completed', 'approved', 'archived'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'حالة التقرير غير صحيحة'
-      });
-    }
-
-    const report = await MedicalReport.findByIdAndUpdate(
-      reportId,
-      { status },
-      { new: true }
-    );
-
-    if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'التقرير غير موجود'
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: `تم تغيير حالة التقرير إلى ${status}`,
-      data: report
-    });
-  } catch (error: any) {
-    console.error('خطأ في تحديث حالة التقرير:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'حدث خطأ في تحديث حالة التقرير',
       error: error.message
     });
   }
@@ -246,43 +308,9 @@ export const deleteReport = async (req: Request, res: Response) => {
       message: 'تم حذف التقرير بنجاح'
     });
   } catch (error: any) {
-    console.error('خطأ في حذف التقرير:', error);
     return res.status(500).json({
       success: false,
       message: 'حدث خطأ في حذف التقرير',
-      error: error.message
-    });
-  }
-};
-
-// تصدير التقرير كـ PDF
-export const exportReportPDF = async (req: Request, res: Response) => {
-  try {
-    const { reportId } = req.params;
-
-    const report = await MedicalReport.findById(reportId)
-      .populate('patientId')
-      .populate('doctorId');
-
-    if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'التقرير غير موجود'
-      });
-    }
-
-    // هنا يتم إضافة مكتبة PDF مثل pdfkit أو html2pdf
-    // للآن نرسل البيانات للـ frontend ليتم تصديرها
-    return res.status(200).json({
-      success: true,
-      message: 'جاهز للتصدير',
-      data: report
-    });
-  } catch (error: any) {
-    console.error('خطأ في تصدير التقرير:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'حدث خطأ في تصدير التقرير',
       error: error.message
     });
   }
@@ -316,7 +344,6 @@ export const searchReports = async (req: Request, res: Response) => {
       count: reports.length
     });
   } catch (error: any) {
-    console.error('خطأ في البحث عن التقارير:', error);
     return res.status(500).json({
       success: false,
       message: 'حدث خطأ في البحث عن التقارير',

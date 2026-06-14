@@ -1,30 +1,24 @@
 import express from 'express';
 import * as reportController from '../controllers/reportController';
+import * as templateController from '../controllers/templateController';
 
 const router = express.Router();
 
-// Create a new medical report
+// Medical Reports Routes
 router.post('/', reportController.createReport);
-
-// Get all reports with filters
 router.get('/', reportController.getAllReports);
-
-// Search reports
 router.get('/search', reportController.searchReports);
-
-// Get a specific report
 router.get('/:reportId', reportController.getReportById);
-
-// Update a report
 router.put('/:reportId', reportController.updateReport);
-
-// Update report status
-router.patch('/:reportId/status', reportController.updateReportStatus);
-
-// Export report as PDF
-router.get('/:reportId/export', reportController.exportReportPDF);
-
-// Delete a report
+router.post('/:reportId/sign', reportController.signReport);
+router.post('/:reportId/approve', reportController.approveReport);
 router.delete('/:reportId', reportController.deleteReport);
+
+// Report Templates Routes
+router.post('/templates/create', templateController.createTemplate);
+router.get('/templates', templateController.getAllTemplates);
+router.get('/templates/:templateId', templateController.getTemplateById);
+router.put('/templates/:templateId', templateController.updateTemplate);
+router.delete('/templates/:templateId', templateController.deleteTemplate);
 
 export default router;
